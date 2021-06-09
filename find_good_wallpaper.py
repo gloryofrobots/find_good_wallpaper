@@ -1,45 +1,40 @@
 import os
+import os.path
 import argparse
 import urllib.request
 import subprocess
+import sys
 from platform import system
 import shutil
 
 OSNAME = system().lower()
 USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/36.0.1941.0 Safari/537.36'
-TMP_FILENAME = '/tmp/find_good_wallpaper'
+TMP_FILENAME = '/tmp/maybe-good-wallpaper'
 URL = "https://source.unsplash.com/1920x1080/?abstract"
+SOURCE_URL = "https://source.unsplash.com/"
 SPLASH = "1920x1080/?abstract"
 DEST_DIR = "."
 OPEN_PROGRAM = ""
-
-def random_string():
-    import string
-    import random # define the random module
-    S = 10  # number of characters in the string
-    # call random.choices() string module to find the string in Uppercase + numeric data.
-    ran = ''.join(random.choices(string.ascii_uppercase + string.digits, k = S))
-    return str(ran)
 
 class Options:
     def __init__(self):
         self.dest_dir = ""
         self.tmp_filename = ""
         self.url = ""
-        self.open_tmp_file_enabled = False
         self.open_program = ""
         self.interactive = False
+        self.extension = ""
         self.process = None
 
 def parse_args():
     parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description='It downloads image from internet, saves it to temporary file and gives you' +
                 'the option to copy it to the destination dir, or to download another one'
     )
 
-    parser.add_argument('-u', '--url', type=str, nargs='?',
-                        default=URL,
-                        help='Url to query for images')
+    parser.add_argument('-u', '--url', default="", type=str, nargs='?',
+                        help='Url to query for images. if --splash and --url is not set --url will be ' + URL)
 
     parser.add_argument('-s','--splash', type=str, nargs='?',
                         default=SPLASH,
@@ -52,9 +47,6 @@ def parse_args():
                         default=TMP_FILENAME,
                         help='temporary file where images will be downloaded. It will be overwritten each download')
 
-    parser.add_argument('-n', '--noopen', action="store_true",
-                        help='If set first downloaded image will be opened by the system or by specified --program')
-
     parser.add_argument('-p','--prog', type=str, action="store",
                         default=OPEN_PROGRAM,
                         help='program to open downloaded images. Format: program @ ,where @ is a placeholder for destination filename(--file option)')
@@ -62,16 +54,10 @@ def parse_args():
     parser.add_argument('-i','--inter', action="store_true",
                         help='Interactive mode. After each download receives a command to repeat, save current or exit')
 
+    parser.add_argument('-e','--extension', default="", action="store",
+                        help='Extension appended to each saved file')
 
-    args = parser.parse_args()
-    opts = Options()
-    opts.dest_dir = args.dest
-    opts.tmp_filename = args.file
-    opts.url = args.url
-    opts.open_tmp_file_enabled = not args.noopen
-    opts.open_program = args.prog
-    opts.interactive = args.inter
-    return opts
+    return parser.parse_args()
 
 
 def get_open_command(filepath):
@@ -91,19 +77,29 @@ def init_url_lib():
 
 
 def download(image_url, filename):
-    filename, headers = urllib.request.urlretrieve(image_url, filename)
-    print("downloaded", image_url)
+    try:
+        # print("Downloading: ", image_url)
+        filename, headers = urllib.request.urlretrieve(image_url, filename)
+        print("Downloaded: ", image_url)
+    except Exception as e:
+        printerr("Download error: {0}".format(e))
+        raise e
 
 
 def run_program(options, program):
-    if options.process != None:
-        options.process.terminate()
-        options.process.kill()
+    # if options.process != None:
+    #     options.process.terminate()
+    #     options.process.kill()
 
-    args = [arg.strip() for arg in program.split(" ")]
-    # subprocess.run([program], check=True)
-    # os.system(program)
-    options.process =  subprocess.Popen(args)
+    # args = [arg.strip() for arg in program.split(" ")]
+    #options.process =  subprocess.Popen(args)
+    try:
+        os.system(program)
+    except Exception as e:
+        printerr("Error: {0}".format(e))
+
+def printerr(*args):
+    print(*args, file=sys.stderr)
 
 
 def create_open_program(opts):
@@ -116,54 +112,82 @@ def create_open_program(opts):
 
 
 def open_tmp_file(options):
-    if options.open_tmp_file_enabled is False:
-        return
     program = create_open_program(options)
     run_program(options, program)
 
-
-def main(options):
-    init_url_lib()
-    single_run(options)
-
-
-def single_run(options):
+def download_and_open(options):
     download(options.url, options.tmp_filename)
     open_tmp_file(options)
+
+def create_url_from_splash(splash):
+    return SOURCE_URL + splash
+
+def create_options(args):
+    print(args)
+    opts = Options()
+    opts.dest_dir = args.dest
+    opts.tmp_filename = args.file
+    if args.url != "" and args.splash != "":
+        printerr("Both --url and --splash options are set so --splash is ignored")
+
+    if args.url != "":
+        opts.url = args.url
+    elif args.url == "" and args.splash != "":
+        opts.url = create_url_from_splash(args.splash)
+    else:
+        opts.url = URL
+
+    opts.open_program = args.prog
+    opts.interactive = args.inter
+    opts.extension = args.extension
+    return opts
+
+def main():
+    args = parse_args()
+    options = create_options(args)
+
+    init_url_lib()
+
+    download_and_open(options)
+    if options.interactive is False:
+        return
     interactive_run(options)
 
 def display_prompt():
-    MSG = "Type n to load next, s to save, q to exit"
+    MSG = "Type s <filename> to save, type n to load next, type q to exit\n"
     answer = input(MSG)
     return answer
 
-def save(options):
-    filename = random_string()
+def save(command, options):
+    filename = command[1:].strip()
+    filepath = os.path.join(options.dest_dir, filename)
+    if options.extension != "":
+        extension = options.extension
+        if extension.startswith("."):
+            extension = extension[1:]
+        filepath = filepath + "." + extension
+    try:
+        shutil.copyfile(options.tmp_filename, filepath)
+        print("File saved into " + filepath)
+    except Exception as err:
+        printerr("Error: {0}".format(err))
+
 
 def interactive_run(options):
-    if options.interactive is False:
-        return
     while True:
         answer = display_prompt()
         if answer == "q":
             return
         elif answer == "n":
-            download(options.url, options.tmp_filename)
-            open_tmp_file(options)
-        elif answer == "s":
-            save(options)
-
-def create_options(args):
-    o = Options()
-    o.dest_dir = args.get("dest_dir", DEST_DIR)
-    o.tmp_filename = args.get("tmp_filename", TMP_FILENAME)
-    o.url = args.get("url", URL)
-    o.open_tmp_file_enabled = True
-    o.open_program = ""
-    return o
-
+            download_and_open(options)
+        elif answer.startswith("s "):
+            save(answer, options)
+        else:
+            print("wrong command!")
 
 if __name__ == "__main__":
-    opts = parse_args()
-    main(opts)
-
+    try:
+        main()
+    except:
+        printerr("Terminated")
+        exit(-1)
