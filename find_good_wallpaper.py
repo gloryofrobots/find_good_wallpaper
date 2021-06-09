@@ -29,6 +29,7 @@ class Options:
         self.open_tmp_file_enabled = False
         self.open_program = ""
         self.interactive = False
+        self.process = None
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -51,7 +52,7 @@ def parse_args():
                         default=TMP_FILENAME,
                         help='temporary file where images will be downloaded. It will be overwritten each download')
 
-    parser.add_argument('-o', '--open', action="store_true",
+    parser.add_argument('-n', '--noopen', action="store_true",
                         help='If set first downloaded image will be opened by the system or by specified --program')
 
     parser.add_argument('-p','--prog', type=str, action="store",
@@ -67,7 +68,7 @@ def parse_args():
     opts.dest_dir = args.dest
     opts.tmp_filename = args.file
     opts.url = args.url
-    opts.open_tmp_file_enabled = args.open
+    opts.open_tmp_file_enabled = not args.noopen
     opts.open_program = args.prog
     opts.interactive = args.inter
     return opts
@@ -94,9 +95,15 @@ def download(image_url, filename):
     print("downloaded", image_url)
 
 
-def run_program(program):
+def run_program(options, program):
+    if options.process != None:
+        options.process.terminate()
+        options.process.kill()
+
+    args = [arg.strip() for arg in program.split(" ")]
     # subprocess.run([program], check=True)
-    os.system(program)
+    # os.system(program)
+    options.process =  subprocess.Popen(args)
 
 
 def create_open_program(opts):
@@ -112,14 +119,12 @@ def open_tmp_file(options):
     if options.open_tmp_file_enabled is False:
         return
     program = create_open_program(options)
-    run_program(program)
+    run_program(options, program)
 
 
 def main(options):
     init_url_lib()
-    download(options.url, options.tmp_filename)
-    open_tmp_file(options)
-    single_run()
+    single_run(options)
 
 
 def single_run(options):
@@ -144,6 +149,7 @@ def interactive_run(options):
             return
         elif answer == "n":
             download(options.url, options.tmp_filename)
+            open_tmp_file(options)
         elif answer == "s":
             save(options)
 
