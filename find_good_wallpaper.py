@@ -22,7 +22,7 @@ class Options:
         self.tmp_filename = ""
         self.url = ""
         self.open_program = ""
-        self.interactive = False
+        self.interactive = True
         self.extension = ""
         self.process = None
 
@@ -51,8 +51,8 @@ def parse_args():
                         default=OPEN_PROGRAM,
                         help='program to open downloaded images. Format: program @ ,where @ is a placeholder for destination filename(--file option)')
 
-    parser.add_argument('-i','--inter', action="store_true",
-                        help='Interactive mode. After each download receives a command to repeat, save current or exit')
+    #parser.add_argument('-i','--inter', action="store_true",
+    #                    help='Interactive mode. After each download receives a command to repeat, save current or exit')
 
     parser.add_argument('-e','--extension', default="", action="store",
                         help='Extension appended to each saved file')
@@ -78,7 +78,7 @@ def init_url_lib():
 
 def download(image_url, filename):
     try:
-        # print("Downloading: ", image_url)
+        print("Downloading: ", image_url)
         filename, headers = urllib.request.urlretrieve(image_url, filename)
         print("Downloaded: ", image_url)
     except Exception as e:
@@ -123,7 +123,6 @@ def create_url_from_splash(splash):
     return SOURCE_URL + splash
 
 def create_options(args):
-    print(args)
     opts = Options()
     opts.dest_dir = args.dest
     opts.tmp_filename = args.file
@@ -131,14 +130,14 @@ def create_options(args):
         printerr("Both --url and --splash options are set so --splash is ignored")
 
     if args.url != "":
-        opts.url = args.url
+        change_url(opts, args.url)
     elif args.url == "" and args.splash != "":
-        opts.url = create_url_from_splash(args.splash)
+        change_splash(opts, args.splash)
     else:
-        opts.url = URL
+        change_url(opts, URL)
 
     opts.open_program = args.prog
-    opts.interactive = args.inter
+    #opts.interactive = args.inter
     opts.extension = args.extension
     return opts
 
@@ -154,12 +153,14 @@ def main():
     interactive_run(options)
 
 def display_prompt():
-    MSG = "Type s <filename> to save, type n to load next, type q to exit\n"
+    MSG = "Type s <filename> to save | n to load next | u <url> to change url | sp <splash> to change splash | q to exit t\n"
     answer = input(MSG)
     return answer
 
-def save(command, options):
-    filename = command[1:].strip()
+def argument(command, length=1):
+    return command[length:].strip()
+
+def save(filename, options):
     filepath = os.path.join(options.dest_dir, filename)
     if options.extension != "":
         extension = options.extension
@@ -167,11 +168,20 @@ def save(command, options):
             extension = extension[1:]
         filepath = filepath + "." + extension
     try:
+        print("copying", options.tmp_filename, filepath)
         shutil.copyfile(options.tmp_filename, filepath)
         print("File saved into " + filepath)
     except Exception as err:
         printerr("Error: {0}".format(err))
 
+def change_url(options, url):
+    options.url = url
+    if not options.url.startswith("https://") and not options.url.startswith("http://"):
+        options.url = "https://"+options.url
+
+def change_splash(options, splash):
+    print("SPL=", splash)
+    options.url = SOURCE_URL + splash
 
 def interactive_run(options):
     while True:
@@ -180,14 +190,20 @@ def interactive_run(options):
             return
         elif answer == "n":
             download_and_open(options)
+        elif answer.startswith("u "):
+            change_url(options, argument(answer))
+            download_and_open(options)
+        elif answer.startswith("sp"):
+            change_splash(options, argument(answer, 2))
+            download_and_open(options)
         elif answer.startswith("s "):
-            save(answer, options)
+            save(argument(answer), options)
         else:
             print("wrong command!")
 
 if __name__ == "__main__":
     try:
         main()
-    except:
-        printerr("Terminated")
+    except Exception as e:
+        printerr("Terminated because: {}".format(e))
         exit(-1)
